@@ -8,6 +8,47 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 
+namespace {
+bool readNgManifest(const QString& manifestPath, QStringList* sources, QString* packName = nullptr)
+{
+    QFile manifestFile(manifestPath);
+    if (!manifestFile.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument manifest = QJsonDocument::fromJson(manifestFile.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !manifest.isObject()) {
+        return false;
+    }
+
+    const QJsonObject object = manifest.object();
+    const QJsonArray sourceArray = object.value("sources").toArray();
+    if (object.value("tool").toString() != "W3ModMerger-NG" ||
+        object.value("schema").toInt() < 1 || sourceArray.isEmpty()) {
+        return false;
+    }
+
+    sources->clear();
+    for (const QJsonValue& source : sourceArray) {
+        const QString sourceName = source.toString().trimmed();
+        if (!sourceName.isEmpty()) {
+            sources->append(sourceName);
+        }
+    }
+
+    if (sources->isEmpty()) {
+        return false;
+    }
+
+    if (packName) {
+        *packName = object.value("pack").toString().trimmed();
+    }
+
+    return true;
+}
+}
+
 Mod::Mod(QString path, QObject* parent) : QObject(parent),  folderPath(path)
 {
     using namespace Constants;
@@ -21,28 +62,8 @@ Mod::Mod(QString path, QObject* parent) : QObject(parent),  folderPath(path)
     // NG-created packs are self-describing. The manifest lives at the pack
     // root using a RED-ignored '~' filename so it travels with the ModPack
     // without becoming game content.
-    QFile manifestFile(folderPath + NG_MANIFEST_PFIX);
-    if (manifestFile.open(QIODevice::ReadOnly)) {
-        QJsonParseError parseError;
-        const QJsonDocument manifest = QJsonDocument::fromJson(manifestFile.readAll(), &parseError);
-
-        if (parseError.error == QJsonParseError::NoError && manifest.isObject()) {
-            const QJsonObject object = manifest.object();
-            const QJsonArray sources = object.value("sources").toArray();
-
-            if (object.value("tool").toString() == "W3ModMerger-NG" &&
-                object.value("schema").toInt() >= 1 &&
-                !sources.isEmpty()) {
-                isNgPack = true;
-                for (const QJsonValue& source : sources) {
-                    const QString sourceName = source.toString().trimmed();
-                    if (!sourceName.isEmpty()) {
-                        ngSources.append(sourceName);
-                    }
-                }
-            }
-        }
-    }
+    QString manifestPackName;
+    isNgPack = readNgManifest(folderPath + NG_MANIFEST_PFIX, &ngSources, &manifestPackName);
 
     metadata.setFile(contentPath + METADATA_PFIX);
     metadata.parse();
@@ -90,7 +111,31 @@ Mod::Mod(QString path, QObject* parent) : QObject(parent),  folderPath(path)
         modState = CORRUPTED;
     }
 
-    if (isMergeable && !isNgPack) {
+    // For a disabled source mod, inspect sibling NG manifests to establish an
+    // authoritative source -> pack relationship. Legacy/unknown merged sources
+    // intentionally remain unverified for the Experimental view.
+    if (modState == MERGED && !isNgPack) {
+        QDir modsRoot(QFileInfo(folderPath).absolutePath());
+        modsRoot.setNameFilters(QStringList("mod*"));
+        modsRoot.setFilter(QDir::Dirs | QDir::NoDotAndDotDot);
+
+        const QFileInfoList siblingMods = modsRoot.entryInfoList();
+        for (const QFileInfo& sibling : siblingMods) {
+            QStringList sources;
+            QString packName;
+            if (!readNgManifest(sibling.absoluteFilePath() + NG_MANIFEST_PFIX, &sources, &packName)) {
+                continue;
+            }
+
+            if (sources.contains(modName, Qt::CaseInsensitive)) {
+                verifiedPackName = packName.isEmpty() ? sibling.fileName() : packName;
+                notes = tr("Verified NG Source • %1").arg(verifiedPackName);
+                break;
+            }
+        }
+    }
+
+    if (isMergeable && !isNgPack && verifiedPackName.isEmpty()) {
         for (QString line : metadata.filesList) {
             if (line.indexOf(ICON_CHECK) != -1) {
                 isMergeable = false;
@@ -188,6 +233,7 @@ bool Mod::renameUnmerge()
     }
 
     mergedResources.clear();
+    verifiedPackName.clear();
     modState = NOT_MERGED;
     return true;
 }
