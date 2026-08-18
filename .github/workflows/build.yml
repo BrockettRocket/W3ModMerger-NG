@@ -15,7 +15,9 @@ jobs:
       - name: Install Qt 5 build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y qtbase5-dev qt5-qmake build-essential
+          sudo apt-get install -y qtbase5-dev qt5-qmake qttools5-dev-tools build-essential
+      - name: Build translation resource
+        run: lrelease translations/W3ModMerger_ru_RU.ts -qm translations/W3ModMerger_ru_RU.qm
       - name: Configure
         run: qmake W3ModMerger.pro
       - name: Build
