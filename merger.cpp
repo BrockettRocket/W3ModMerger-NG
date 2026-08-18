@@ -6,6 +6,11 @@
 
 #include <QDirIterator>
 #include <QFileInfo>
+#include <QFile>
+#include <QDateTime>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 Merger::Merger(const QList<Mod*>& mods, const Settings* s, QObject* parent)
     : QObject(parent), modList(mods), settings(s)
@@ -60,7 +65,7 @@ void Merger::startMerging()
     shouldPause = settings->showPauseMessage;
 
     for (auto mod : modList) {
-        if (mod->checked) {
+        if (mod->checked && mod->modState == NOT_MERGED) {
             chosenMods.append(mod);
             if (mod->hasCache) {
                 uncookQueue.enqueue(parseCmdArgs(settings->cmdUncook, mod->folderPathNative));
@@ -309,6 +314,39 @@ void Merger::metadataFinished(int exitCode, QProcess::ExitStatus exitStatus)
         abortMerge(reason);
         return;
     }
+
+    // Only after the Witcher output validates do we stamp the pack with
+    // authoritative NG provenance. The '~' filename is intentionally ignored
+    // by RED while remaining inside the ModPack for Vortex/manual installs.
+    QJsonArray sources;
+    for (Mod* mod : chosenMods) {
+        sources.append(mod->modName);
+    }
+
+    QJsonObject manifest;
+    manifest.insert("schema", 1);
+    manifest.insert("tool", "W3ModMerger-NG");
+    manifest.insert("pack", settings->mergedModName);
+    manifest.insert("sourceCount", sources.size());
+    manifest.insert("sources", sources);
+    manifest.insert("createdUtc", QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+
+    const QString manifestPath = settings->pathPacked + Constants::SLASH +
+                                 settings->mergedModName + Constants::NG_MANIFEST_PFIX;
+    QFile manifestFile(manifestPath);
+    if (!manifestFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        abortMerge(tr("Could not create NG ModPack manifest. Partial output was removed."));
+        return;
+    }
+
+    const QByteArray manifestBytes = QJsonDocument(manifest).toJson(QJsonDocument::Indented);
+    if (manifestFile.write(manifestBytes) != manifestBytes.size()) {
+        manifestFile.close();
+        abortMerge(tr("Could not write NG ModPack manifest. Partial output was removed."));
+        return;
+    }
+    manifestFile.close();
+    emit toLog(tr("NG manifest created: %1").arg(manifestPath));
 
     if (!commitSourceMods(&reason)) {
         abortMerge(reason);

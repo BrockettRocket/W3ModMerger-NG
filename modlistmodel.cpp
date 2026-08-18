@@ -57,6 +57,9 @@ QVariant ModlistModel::data(const QModelIndex& index, int role) const
     }
 
     if ( role == Qt::CheckStateRole && index.column() == Columns::CHECKBOX ) {
+        if (currentMod->modState != NOT_MERGED) {
+            return QVariant();
+        }
         return currentMod->checked ? Qt::Checked : Qt::Unchecked;
     }
 
@@ -84,13 +87,17 @@ QVariant ModlistModel::data(const QModelIndex& index, int role) const
             break;
         case Columns::STATUS:
             if ( currentMod->modState == MERGED) {
-                result = tr("Merged", "One of the possible mod states.");
+                result = currentMod->verifiedPackName.isEmpty()
+                        ? tr("Merged Source (Experimental)", "Merged source with unknown/legacy pack provenance.")
+                        : tr("Verified NG Source", "Merged source proven by an NG manifest.");
             }
             else if ( currentMod->modState == NOT_MERGED) {
                 result = tr("Not merged", "One of the possible mod states.");
             }
             else if (currentMod->modState == MERGED_PACK) {
-                result = tr("Merged pack", "One of the possible mod states.");
+                result = currentMod->isNgPack
+                        ? tr("Verified NG Pack", "Authoritative W3ModMerger-NG pack state.")
+                        : tr("Merged pack", "One of the possible mod states.");
             }
             else if (currentMod->modState == CORRUPTED) {
                 result = tr("Corrupted", "One of the possible mod states.");
@@ -143,7 +150,7 @@ Qt::ItemFlags ModlistModel::flags(const QModelIndex& index) const
     result |= Qt::ItemIsDragEnabled;
     result |= Qt::ItemIsDropEnabled;
 
-    if (index.column() == Columns::CHECKBOX) {
+    if (index.column() == Columns::CHECKBOX && modList.at(index.row())->modState == NOT_MERGED) {
         result |= Qt::ItemIsEnabled;
         result |= Qt::ItemIsUserCheckable;
     }
@@ -153,7 +160,8 @@ Qt::ItemFlags ModlistModel::flags(const QModelIndex& index) const
 
 bool ModlistModel::setData(const QModelIndex& index, const QVariant& value, int role)
 {
-    if (index.isValid() && role == Qt::CheckStateRole) {
+    if (index.isValid() && role == Qt::CheckStateRole &&
+        modList.at(index.row())->modState == NOT_MERGED) {
         modList.at( index.row() )->checked = value.toBool();
         emit dataChanged(index, index);
         return true;

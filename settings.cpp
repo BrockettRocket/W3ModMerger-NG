@@ -3,12 +3,70 @@
 
 #include <QDir>
 #include <QFileDialog>
+#include <QMessageBox>
+#include <QPushButton>
 
 Settings::Settings(QWidget* parent) :
     QDialog(parent),
     ui(new Ui::Settings)
 {
     ui->setupUi(this);
+
+    setWindowTitle(tr("W3ModMerger-NG Settings"));
+
+    ui->groupBoxWcc->setTitle(tr("Path to wcc_lite.exe"));
+    ui->groupBoxWcc->setToolTip(tr("Select wcc_lite.exe from the Witcher 3 ModKit. W3ModMerger-NG uses it to uncook, cook, build caches, pack files, and generate metadata."));
+    ui->lineEditWcc->setToolTip(ui->groupBoxWcc->toolTip());
+
+    ui->groupBoxModName->setTitle(tr("ModPack Name"));
+    ui->groupBoxModName->setToolTip(tr("Folder/name to use for the next ModPack created by the merge pipeline."));
+    ui->lineEditModName->setToolTip(ui->groupBoxModName->toolTip());
+
+    ui->groupBoxFolders->setTitle(tr("Working Folders"));
+    ui->lineEditUncooked->setToolTip(tr("Temporary extracted files created during the uncook stage."));
+    ui->lineEditCooked->setToolTip(tr("Temporary processed files created during the cook stage."));
+    ui->lineEditPacked->setToolTip(tr("Destination folder where completed ModPacks are built."));
+
+    ui->groupBoxMisc->setTitle(tr("Workflow Options"));
+    ui->checkBoxAutoInstall->setText(tr("Auto-install ModPack (not recommended with Vortex)"));
+    ui->checkBoxAutoInstall->setToolTip(tr("Copies the completed ModPack directly into the game's Mods folder. If Vortex manages your mods, manual import/deployment is usually safer."));
+
+    ui->checkBoxCleanDirs->setText(tr("Automatically delete working folders after completion"));
+    ui->checkBoxCleanDirs->setToolTip(tr("Deletes temporary Uncooked/Cooked working data after a successful merge."));
+
+    ui->checkBoxMergingOrder->setText(tr("Remember Merge Order (priority-sensitive)"));
+    ui->checkBoxMergingOrder->setToolTip(tr("Restores the previous merge order on the next scan. Order matters when selected mods contain the same resource."));
+
+    ui->checkBoxShowPause->setText(tr("Pause for manual file cleanup (Advanced)"));
+    ui->checkBoxShowPause->setToolTip(tr("Pauses after pipeline stages so advanced users can manually inspect/remove files from the Uncooked/Cooked working folders before continuing."));
+
+    ui->groupBoxAdvanced->setTitle(tr("Advanced / Developer Options — USE AT OWN RISK"));
+    ui->groupBoxAdvanced->setToolTip(tr("Experimental pipeline controls. Changing WCC commands or flags can produce incomplete or unusable ModPacks. Leave these at their defaults unless you understand the Witcher 3 ModKit pipeline."));
+    ui->lineCmdUncook->setToolTip(ui->groupBoxAdvanced->toolTip());
+    ui->lineCmdCook->setToolTip(ui->groupBoxAdvanced->toolTip());
+    ui->lineCmdCache->setToolTip(ui->groupBoxAdvanced->toolTip());
+    ui->lineCmdPack->setToolTip(ui->groupBoxAdvanced->toolTip());
+    ui->lineCmdMetadata->setToolTip(ui->groupBoxAdvanced->toolTip());
+
+    QPushButton* quickGuide = new QPushButton(tr("Quick Guide"), this);
+    quickGuide->setToolTip(tr("Explain the working folders, merge order, Suggested Mods, and conflict review."));
+    ui->verticalLayoutButtons->insertWidget(3, quickGuide);
+
+    connect(quickGuide, &QPushButton::clicked, this, [=]() {
+        QMessageBox guide(this);
+        guide.setWindowTitle(tr("W3ModMerger-NG Quick Guide"));
+        guide.setIcon(QMessageBox::Information);
+        guide.setTextFormat(Qt::RichText);
+        guide.setText(tr(
+            "<b>Uncooked</b><br>Temporary files extracted by wcc_lite for processing.<br><br>"
+            "<b>Cooked</b><br>Temporary processed files prepared for cache building and packing.<br><br>"
+            "<b>Packed</b><br>Destination where completed ModPacks are created.<br><br>"
+            "<b>Merge Order</b><br>Priority-sensitive. When multiple selected mods contain the same resource, their order can affect the final result.<br><br>"
+            "<b>Suggest Mods</b><br>This is a quick candidate selection tool, <b>not a one-click merge solution</b>. Review the selection and decide what you actually want to combine.<br><br>"
+            "<b>Review Conflicts</b><br>Shows resources shared by multiple selected mods. Inspect these before creating the ModPack."
+        ));
+        guide.exec();
+    });
 }
 
 Settings::~Settings()

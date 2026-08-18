@@ -99,6 +99,8 @@ void MainWindow::on_actionSettings_triggered()
 {
     if (settings->exec()) {
         settings->fromWindowToVars();
+        scanModsFolder();
+        handleControls();
     }
 }
 
@@ -217,7 +219,7 @@ void MainWindow::on_buttonRecommended_clicked()
 void MainWindow::on_buttonSelectAll_clicked()
 {
     for (auto mod : modListMergeable) {
-        mod->checked = true;
+        mod->checked = (mod->modState == NOT_MERGED);
     }
 
     handleControls();
@@ -284,21 +286,48 @@ void MainWindow::on_buttonMerge_clicked()
 
 void MainWindow::on_buttonUnmerge_clicked()
 {
+    QStringList restoredSources;
+
     for (auto mod : modListMergeable) {
         if (mod->modState == MERGED) {
-            sendToLog( tr("Unmerging %1%2", "Log message (looks like Unmerging modName...)").arg(mod->modName).arg("...") );
+            sendToLog( tr("Restoring %1%2", "Log message (looks like Restoring modName...)").arg(mod->modName).arg("...") );
             if (!mod->renameUnmerge()) {
                 sendToLog( tr("ERROR: Could not restore %1. No further changes were made to that mod.").arg(mod->modName) );
+            }
+            else {
+                restoredSources.append(mod->modName);
             }
         }
     }
 
-    QString mergedModFolder = modsFolder.absolutePath() + Constants::SLASH + settings->mergedModName;
-    QDir mergedPack(mergedModFolder);
-    mergedPack.removeRecursively();
+    // A ModPack is only removed automatically when NG can prove ownership
+    // through its embedded manifest. Never delete an arbitrary folder merely
+    // because its name happens to match the current ModPack Name field.
+    for (auto mod : modListFull) {
+        if (!mod->isNgPack) {
+            continue;
+        }
 
-    sendToLog( tr("%1 removed.", "Mod removal log message.").arg(mergedModFolder) );
-    sendToLog( tr("Unmerging finished.", "Log message.") );
+        bool ownsRestoredSource = false;
+        for (const QString& source : mod->ngSources) {
+            if (restoredSources.contains(source, Qt::CaseInsensitive)) {
+                ownsRestoredSource = true;
+                break;
+            }
+        }
+
+        if (ownsRestoredSource) {
+            const QString packPath = mod->folderPath;
+            if (QDir(packPath).removeRecursively()) {
+                sendToLog( tr("Verified NG Pack removed: %1").arg(packPath) );
+            }
+            else {
+                sendToLog( tr("WARNING: Could not remove Verified NG Pack: %1").arg(packPath) );
+            }
+        }
+    }
+
+    sendToLog( tr("Source restore finished.", "Log message.") );
     scanModsFolder();
     handleControls();
 }
@@ -530,13 +559,9 @@ void MainWindow::scanModsFolder()
             continue;
         }
 
-        if ( (mod->isMergeable || mod->modState == MERGED ) && mod->modName != Constants::MERGED_SCRIPTS_NAME ) {
+        if ( (mod->isMergeable || mod->modState == MERGED || mod->modState == MERGED_PACK) &&
+             mod->modName != Constants::MERGED_SCRIPTS_NAME ) {
             modListMergeable.append(mod);
-        }
-
-        if (mod->modName == settings->mergedModName) {
-            mod->modState = MERGED_PACK;
-            mod->notes.clear();
         }
     }
 
@@ -545,18 +570,9 @@ void MainWindow::scanModsFolder()
 
         QList<Mod*> restoredOrder;
         QStringList savedOrder = settings->mergingOrder;
-
-        // Move merged pack on top of the list
         Mod* temp = nullptr;
-        int index = indexByName(Constants::DEFAULT_NAME);
+        int index = -1;
 
-        if (index != -1) {
-            temp = modListMergeable.at(index);
-            modListMergeable.removeAt(index);
-            restoredOrder.append(temp);
-        }
-
-        // Handle the rest of the list
         for (auto name : savedOrder) {
             index = indexByName(name);
 
@@ -579,7 +595,7 @@ void MainWindow::scanModsFolder()
         [=]() { checkForConflicts(); }
     );
 
-    reportLabel->setText( tr("Mergeable mods: %1", "Status bar text.").arg(QString::number(modListMergeable.size())) );
+    reportLabel->setText( tr("Workspace: %1", "Status bar text.").arg(QString::number(modListMergeable.size())) );
 }
 
 void MainWindow::updateTableView()
@@ -617,14 +633,8 @@ void MainWindow::handleControls()
         }
     }
 
-    // Block merging if merged pack exists
-    for (auto mod : modListMergeable) {
-        if (mod->modState == MERGED_PACK) {
-            mergeEnabled = false;
-            break;
-        }
-    }
-
+    // Existing ModPacks no longer globally block creation. The requested
+    // output name/path is validated by Merger::startMerging instead.
     if (!settings->isWccSpecified) {
         mergeEnabled = false;
     }

@@ -54,17 +54,28 @@ void Unpacker::startUnpacking()
 
                 emit toLog( tr("   Extracting: %1", "File extraction message.").arg(record.filename) );
 
-                QString dirPath = record.filename.mid(0, record.filename.lastIndexOf('\\'));
+                // Bundle paths use backslashes, but some valid resources live
+                // directly at the bundle root (for example strings.list).
+                // The old mid(0, -1) behaviour turned a root-level filename
+                // into a directory named after the file, making QFile::open()
+                // fail immediately. Normalize separators and only create a
+                // parent directory when one actually exists.
+                QString relativePath = record.filename;
+                relativePath.replace('\\', '/');
 
-                QDir d;
-                if (!d.mkpath(settings->pathCooked + Constants::SLASH + dirPath)) {
-                    QString reason = tr("Failed to create output directory for: %1").arg(record.filename);
-                    emit toLog(reason);
-                    emit failed(reason);
-                    return;
+                const int separator = relativePath.lastIndexOf('/');
+                if (separator >= 0) {
+                    const QString dirPath = relativePath.left(separator);
+                    QDir d;
+                    if (!d.mkpath(settings->pathCooked + Constants::SLASH + dirPath)) {
+                        QString reason = tr("Failed to create output directory for: %1").arg(record.filename);
+                        emit toLog(reason);
+                        emit failed(reason);
+                        return;
+                    }
                 }
 
-                QFile result(settings->pathCooked + Constants::SLASH + record.filename);
+                QFile result(settings->pathCooked + Constants::SLASH + relativePath);
 
                 if (!result.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
                     QString reason = tr("Failed to save extracted file: %1").arg(result.fileName());

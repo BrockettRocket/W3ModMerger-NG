@@ -2,6 +2,52 @@
 
 #include <QDataStream>
 #include <QPair>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
+
+namespace {
+bool readNgManifest(const QString& manifestPath, QStringList* sources, QString* packName = nullptr)
+{
+    QFile manifestFile(manifestPath);
+    if (!manifestFile.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument manifest = QJsonDocument::fromJson(manifestFile.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !manifest.isObject()) {
+        return false;
+    }
+
+    const QJsonObject object = manifest.object();
+    const QJsonArray sourceArray = object.value("sources").toArray();
+    if (object.value("tool").toString() != "W3ModMerger-NG" ||
+        object.value("schema").toInt() < 1 || sourceArray.isEmpty()) {
+        return false;
+    }
+
+    sources->clear();
+    for (const QJsonValue& source : sourceArray) {
+        const QString sourceName = source.toString().trimmed();
+        if (!sourceName.isEmpty()) {
+            sources->append(sourceName);
+        }
+    }
+
+    if (sources->isEmpty()) {
+        return false;
+    }
+
+    if (packName) {
+        *packName = object.value("pack").toString().trimmed();
+    }
+
+    return true;
+}
+}
 
 Mod::Mod(QString path, QObject* parent) : QObject(parent),  folderPath(path)
 {
@@ -12,6 +58,12 @@ Mod::Mod(QString path, QObject* parent) : QObject(parent),  folderPath(path)
     scriptsPath = contentPath + SCRIPTS_PFIX;
     cachePath = contentPath + CACHE_PFIX;
     modName = folderPath.mid( folderPath.lastIndexOf(SLASH) + 1 );
+
+    // NG-created packs are self-describing. The manifest lives at the pack
+    // root using a RED-ignored '~' filename so it travels with the ModPack
+    // without becoming game content.
+    QString manifestPackName;
+    isNgPack = readNgManifest(folderPath + NG_MANIFEST_PFIX, &ngSources, &manifestPackName);
 
     metadata.setFile(contentPath + METADATA_PFIX);
     metadata.parse();
@@ -46,27 +98,58 @@ Mod::Mod(QString path, QObject* parent) : QObject(parent),  folderPath(path)
     folder.setFilter(QDir::Files);
     QFileInfoList detectedResources = folder.entryInfoList();
 
-    /* Some checks for notes */
+    /* Compact, user-facing notes. Detailed reasons stay available through
+       tooltips/conflict review instead of repeating paragraph warnings. */
 
-    if ( mergedResources.size() > 0 && detectedResources.size() > 0) {
-        notes.append( tr("Mod contains both merged and unmerged bundles, please delete unnecessary files. ", "Incorrect mod structure warning.") );
+    if (isNgPack) {
+        modState = MERGED_PACK;
+        checked = false;
+        notes = tr("Verified NG Pack • %1 source mod(s)").arg(ngSources.size());
+    }
+    else if ( mergedResources.size() > 0 && detectedResources.size() > 0) {
+        notes.append( tr("Mixed merged/unmerged resources — repair required.", "Incorrect mod structure warning.") );
         modState = CORRUPTED;
     }
 
-    if (isMergeable) {
+    // For a disabled source mod, inspect sibling NG manifests to establish an
+    // authoritative source -> pack relationship. Legacy/unknown merged sources
+    // intentionally remain unverified for the Experimental view.
+    if (modState == MERGED && !isNgPack) {
+        QDir modsRoot(QFileInfo(folderPath).absolutePath());
+        modsRoot.setNameFilters(QStringList("mod*"));
+        modsRoot.setFilter(QDir::Dirs | QDir::NoDotAndDotDot);
+
+        const QFileInfoList siblingMods = modsRoot.entryInfoList();
+        for (const QFileInfo& sibling : siblingMods) {
+            QStringList sources;
+            QString packName;
+            if (!readNgManifest(sibling.absoluteFilePath() + NG_MANIFEST_PFIX, &sources, &packName)) {
+                continue;
+            }
+
+            if (sources.contains(modName, Qt::CaseInsensitive)) {
+                verifiedPackName = packName.isEmpty() ? sibling.fileName() : packName;
+                notes = tr("Verified NG Source • %1").arg(verifiedPackName);
+                break;
+            }
+        }
+    }
+
+    if (isMergeable && !isNgPack && verifiedPackName.isEmpty()) {
         for (QString line : metadata.filesList) {
             if (line.indexOf(ICON_CHECK) != -1) {
                 isMergeable = false;
+                notes = tr("Inventory/icon resources — excluded from automatic merge suggestions.");
                 break;
             }
 
             if (line.indexOf(XML_CHECK) != -1) {
-                notes.append( tr("XML files detected, merging is NOT recommended. ", "Warns about detected xmls.") );
+                notes = tr("XML content — review before merging.", "Warns about detected xmls.");
                 break;
             }
 
             if (line.indexOf(SWF_CHECK) != -1) {
-                notes.append( tr("SWF files detected, merging is NOT recommended. ", "Warns about detected swfs.") );
+                notes = tr("SWF content — review before merging.", "Warns about detected swfs.");
                 break;
             }
         }
@@ -150,6 +233,7 @@ bool Mod::renameUnmerge()
     }
 
     mergedResources.clear();
+    verifiedPackName.clear();
     modState = NOT_MERGED;
     return true;
 }

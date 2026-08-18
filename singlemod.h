@@ -13,6 +13,7 @@ namespace Constants {
     const QString CACHE_PFIX = "/texture.cache";
     const QString METADATA_PFIX = "/metadata.store";
     const QString RENAME_PFIX = "-merged";
+    const QString NG_MANIFEST_PFIX = "/~w3modmerger-ng.json";
     const QString SLASH = "/";
 
     const QString MERGED_SCRIPTS_NAME = "mod0000_MergedFiles";
@@ -47,9 +48,12 @@ public:
     bool    hasBundles = false;
     bool    isMergeable = false;
     bool    checked = false;
+    bool    isNgPack = false;
     State   modState = NOT_MERGED;
 
     QString notes;
+    QString verifiedPackName;
+    QStringList ngSources;
     QFileInfoList mergedResources;
     MetadataStore metadata;
     QList<BundleFile*> bundles;
