@@ -56,6 +56,20 @@ MainWindow::MainWindow(QWidget* parent) :
 
     // Misc
     merger = new Merger(modListMergeable, settings, this);
+    connect(merger, &Merger::mergingStarted, this, &MainWindow::handleControls);
+    connect(merger, &Merger::toLog, this, &MainWindow::sendToLog);
+    connect(merger, &Merger::toStatusbar, this, &MainWindow::sendToStatusbar);
+    connect(merger, &Merger::mergingFailed, this, &MainWindow::on_mergeFailed);
+    connect(merger, &Merger::mergingFinished, this,
+        [=]() {
+            if (settings->autoInstallEnabled) {
+                installMergedPack();
+            }
+            else {
+                on_mergeFinished();
+            }
+        }
+    );
     handleControls();
 }
 
@@ -148,7 +162,7 @@ void MainWindow::on_textEditLog_customContextMenuRequested(const QPoint& pos)
     }
 
     QMenu* menu = new QMenu(this);
-    QAction* actionSaveLog = new QAction( tr("Save log as...", "Log context menu item."), this);
+    QAction* actionSaveLog = new QAction( tr("Save log as...", "Mod context menu item."), this);
     menu->addAction(actionSaveLog);
 
     connect(actionSaveLog, &QAction::triggered, this, &MainWindow::saveLogToFile);
@@ -264,29 +278,20 @@ void MainWindow::on_buttonMerge_clicked()
         }
     }
 
-    connect(merger, &Merger::mergingStarted, this, &MainWindow::handleControls);
-    connect(merger, &Merger::toLog, this, &MainWindow::sendToLog);
-    connect(merger, &Merger::toStatusbar, this, &MainWindow::sendToStatusbar);
-
-    if (settings->autoInstallEnabled) {
-        connect(merger, &Merger::mergingFinished, this, &MainWindow::installMergedPack);
-    }
-    else {
-        connect(merger, &Merger::mergingFinished, this, &MainWindow::on_mergeFinished);
-    }
-
     log->clear();
     merger->startMerging();
 }
 
 void MainWindow::on_buttonUnmerge_clicked()
 {
-    for (auto mod : modListMergeable)
+    for (auto mod : modListMergeable) {
         if (mod->modState == MERGED) {
             sendToLog( tr("Unmerging %1%2", "Log message (looks like Unmerging modName...)").arg(mod->modName).arg("...") );
-            mod->modState = NOT_MERGED;
-            mod->renameUnmerge();
+            if (!mod->renameUnmerge()) {
+                sendToLog( tr("ERROR: Could not restore %1. No further changes were made to that mod.").arg(mod->modName) );
+            }
         }
+    }
 
     QString mergedModFolder = modsFolder.absolutePath() + Constants::SLASH + settings->mergedModName;
     QDir mergedPack(mergedModFolder);
@@ -332,6 +337,14 @@ void MainWindow::on_mergeFinished()
     if (settings->autoCleanEnabled) {
         cleanWorkingDirs();
     }
+}
+
+void MainWindow::on_mergeFailed(const QString& reason)
+{
+    sendToLog( tr("Merging process failed: %1").arg(reason) );
+    sendToStatusbar(" ");
+    scanModsFolder();
+    handleControls();
 }
 
 void MainWindow::openInExplorer() const
