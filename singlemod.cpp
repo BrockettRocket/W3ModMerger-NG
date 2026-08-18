@@ -1,6 +1,7 @@
 #include "singlemod.h"
 
 #include <QDataStream>
+#include <QPair>
 
 Mod::Mod(QString path, QObject* parent) : QObject(parent),  folderPath(path)
 {
@@ -72,33 +73,83 @@ Mod::Mod(QString path, QObject* parent) : QObject(parent),  folderPath(path)
     }
 }
 
-void Mod::renameMerge()
+bool Mod::renameMerge()
 {
     using namespace Constants;
 
-    checker->setFile(cachePath);
+    QList<QPair<QString, QString>> pending;
 
+    checker->setFile(cachePath);
     if ( checker->exists() ) {
-        QFile::rename(cachePath, cachePath + RENAME_PFIX);
+        pending.append(qMakePair(cachePath, cachePath + RENAME_PFIX));
     }
 
     if (hasMetadata) {
-        QFile::rename(contentPath + METADATA_PFIX, contentPath + METADATA_PFIX + RENAME_PFIX);
+        pending.append(qMakePair(contentPath + METADATA_PFIX,
+                                 contentPath + METADATA_PFIX + RENAME_PFIX));
     }
 
     if (hasBundles) {
         for (auto file : bundles) {
-            QFile::rename(file->fullPath, file->fullPath + RENAME_PFIX);
+            pending.append(qMakePair(file->fullPath, file->fullPath + RENAME_PFIX));
         }
     }
-}
 
-void Mod::renameUnmerge()
-{
-    for (QFileInfo mr : mergedResources) {
-        QString newName = mr.absoluteFilePath();
-        newName.chop(Constants::RENAME_PFIX.size());
-        QFile::rename( mr.absoluteFilePath(), newName );
+    // Preflight the complete transaction before touching the source mod.
+    for (const auto& item : pending) {
+        if (!QFileInfo::exists(item.first) || QFileInfo::exists(item.second)) {
+            return false;
+        }
     }
 
+    QList<QPair<QString, QString>> completed;
+    for (const auto& item : pending) {
+        if (!QFile::rename(item.first, item.second)) {
+            for (auto iter = completed.crbegin(); iter != completed.crend(); ++iter) {
+                QFile::rename(iter->second, iter->first);
+            }
+            return false;
+        }
+        completed.append(item);
+    }
+
+    mergedResources.clear();
+    for (const auto& item : completed) {
+        mergedResources.append(QFileInfo(item.second));
+    }
+    modState = MERGED;
+    return true;
+}
+
+bool Mod::renameUnmerge()
+{
+    QList<QPair<QString, QString>> pending;
+
+    for (const QFileInfo& mr : mergedResources) {
+        QString oldName = mr.absoluteFilePath();
+        QString newName = oldName;
+        newName.chop(Constants::RENAME_PFIX.size());
+        pending.append(qMakePair(oldName, newName));
+    }
+
+    for (const auto& item : pending) {
+        if (!QFileInfo::exists(item.first) || QFileInfo::exists(item.second)) {
+            return false;
+        }
+    }
+
+    QList<QPair<QString, QString>> completed;
+    for (const auto& item : pending) {
+        if (!QFile::rename(item.first, item.second)) {
+            for (auto iter = completed.crbegin(); iter != completed.crend(); ++iter) {
+                QFile::rename(iter->second, iter->first);
+            }
+            return false;
+        }
+        completed.append(item);
+    }
+
+    mergedResources.clear();
+    modState = NOT_MERGED;
+    return true;
 }
