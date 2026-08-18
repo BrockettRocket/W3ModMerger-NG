@@ -87,7 +87,9 @@ QVariant ModlistModel::data(const QModelIndex& index, int role) const
             break;
         case Columns::STATUS:
             if ( currentMod->modState == MERGED) {
-                result = tr("Merged", "One of the possible mod states.");
+                result = currentMod->verifiedPackName.isEmpty()
+                        ? tr("Merged Source (Experimental)", "Merged source with unknown/legacy pack provenance.")
+                        : tr("Verified NG Source", "Merged source proven by an NG manifest.");
             }
             else if ( currentMod->modState == NOT_MERGED) {
                 result = tr("Not merged", "One of the possible mod states.");
