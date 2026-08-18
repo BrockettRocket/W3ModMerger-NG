@@ -46,10 +46,11 @@ Mod::Mod(QString path, QObject* parent) : QObject(parent),  folderPath(path)
     folder.setFilter(QDir::Files);
     QFileInfoList detectedResources = folder.entryInfoList();
 
-    /* Some checks for notes */
+    /* Compact, user-facing notes. Detailed reasons stay available through
+       tooltips/conflict review instead of repeating paragraph warnings. */
 
     if ( mergedResources.size() > 0 && detectedResources.size() > 0) {
-        notes.append( tr("Mod contains both merged and unmerged bundles, please delete unnecessary files. ", "Incorrect mod structure warning.") );
+        notes.append( tr("Mixed merged/unmerged resources — repair required.", "Incorrect mod structure warning.") );
         modState = CORRUPTED;
     }
 
@@ -57,16 +58,17 @@ Mod::Mod(QString path, QObject* parent) : QObject(parent),  folderPath(path)
         for (QString line : metadata.filesList) {
             if (line.indexOf(ICON_CHECK) != -1) {
                 isMergeable = false;
+                notes = tr("Inventory/icon resources — excluded from automatic merge suggestions.");
                 break;
             }
 
             if (line.indexOf(XML_CHECK) != -1) {
-                notes.append( tr("XML files detected, merging is NOT recommended. ", "Warns about detected xmls.") );
+                notes = tr("XML content — review before merging.", "Warns about detected xmls.");
                 break;
             }
 
             if (line.indexOf(SWF_CHECK) != -1) {
-                notes.append( tr("SWF files detected, merging is NOT recommended. ", "Warns about detected swfs.") );
+                notes = tr("SWF content — review before merging.", "Warns about detected swfs.");
                 break;
             }
         }
