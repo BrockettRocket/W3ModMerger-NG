@@ -62,7 +62,9 @@ jobs:
       - name: Package standalone Windows build
         shell: pwsh
         run: |
+          $mingw = Join-Path $env:RUNNER_WORKSPACE 'Qt\Tools\mingw810_64\bin'
           New-Item -ItemType Directory -Force -Path dist | Out-Null
+
           $exe = Get-ChildItem -Path . -Filter W3ModMerger.exe -Recurse |
             Where-Object { $_.FullName -notmatch '\\dist\\' } |
             Select-Object -First 1
@@ -70,7 +72,51 @@ jobs:
             throw 'W3ModMerger.exe was not produced by the build.'
           }
           Copy-Item $exe.FullName 'dist\W3ModMerger-NG.exe'
-          windeployqt --release --compiler-runtime 'dist\W3ModMerger-NG.exe'
+
+          # Qt 5.15 MinGW's windeployqt can fail to locate qwindows.dll even
+          # when the official platform plugin is installed. Package this small
+          # Widgets app explicitly so the artifact is deterministic.
+          $requiredQtDlls = @(
+            'Qt5Core.dll',
+            'Qt5Gui.dll',
+            'Qt5Widgets.dll'
+          )
+          foreach ($dll in $requiredQtDlls) {
+            $src = Join-Path $env:QT_ROOT_DIR "bin\$dll"
+            if (!(Test-Path $src)) { throw "Missing required Qt runtime: $src" }
+            Copy-Item $src dist
+          }
+
+          $optionalQtDlls = @(
+            'libEGL.dll',
+            'libGLESv2.dll',
+            'D3Dcompiler_47.dll',
+            'opengl32sw.dll'
+          )
+          foreach ($dll in $optionalQtDlls) {
+            $src = Join-Path $env:QT_ROOT_DIR "bin\$dll"
+            if (Test-Path $src) { Copy-Item $src dist }
+          }
+
+          $mingwRuntime = @(
+            'libgcc_s_seh-1.dll',
+            'libstdc++-6.dll',
+            'libwinpthread-1.dll'
+          )
+          foreach ($dll in $mingwRuntime) {
+            $src = Join-Path $mingw $dll
+            if (!(Test-Path $src)) { throw "Missing required MinGW runtime: $src" }
+            Copy-Item $src dist
+          }
+
+          foreach ($pluginDir in @('platforms', 'styles', 'imageformats')) {
+            $src = Join-Path $env:QT_ROOT_DIR "plugins\$pluginDir"
+            if (Test-Path $src) {
+              Copy-Item $src "dist\$pluginDir" -Recurse
+            }
+          }
+
+          Copy-Item 'W3ModMerger.manifest' 'dist\W3ModMerger-NG.exe.manifest'
           Copy-Item README.md 'dist\README.md' -ErrorAction SilentlyContinue
           Get-ChildItem -Path dist -Recurse
 
