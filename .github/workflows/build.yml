@@ -1,0 +1,22 @@
+name: build
+
+on:
+  push:
+    branches:
+      - master
+      - 'ng/**'
+  pull_request:
+
+jobs:
+  linux-qt5:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Qt 5 build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qtbase5-dev qt5-qmake build-essential
+      - name: Configure
+        run: qmake W3ModMerger.pro
+      - name: Build
+        run: make -j2
