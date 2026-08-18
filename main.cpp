@@ -75,9 +75,10 @@ int main(int argc, char* argv[])
     QComboBox* viewCombo = new QComboBox(workspaceBar);
     viewCombo->addItem(QObject::tr("All Mods"));
     viewCombo->addItem(QObject::tr("Available / Unmerged"));
-    viewCombo->addItem(QObject::tr("Merged Sources"));
+    viewCombo->addItem(QObject::tr("Verified NG Sources"));
+    viewCombo->addItem(QObject::tr("Merged Sources (Experimental)"));
     viewCombo->addItem(QObject::tr("ModPacks"));
-    viewCombo->setToolTip(QObject::tr("Filter the workspace by the current mod state."));
+    viewCombo->setToolTip(QObject::tr("Verified NG Sources are proven by an embedded NG manifest. Experimental merged sources are legacy/unknown relationships inferred only from their merged state."));
 
     QLineEdit* searchEdit = new QLineEdit(workspaceBar);
     searchEdit->setPlaceholderText(QObject::tr("Search mods or ModPacks..."));
@@ -114,9 +115,12 @@ int main(int argc, char* argv[])
                 viewMatch = status.compare(QObject::tr("Not merged"), Qt::CaseInsensitive) == 0;
             }
             else if (view == 2) {
-                viewMatch = status.compare(QObject::tr("Merged"), Qt::CaseInsensitive) == 0;
+                viewMatch = status.compare(QObject::tr("Verified NG Source"), Qt::CaseInsensitive) == 0;
             }
             else if (view == 3) {
+                viewMatch = status.compare(QObject::tr("Merged Source (Experimental)"), Qt::CaseInsensitive) == 0;
+            }
+            else if (view == 4) {
                 viewMatch = status.contains(QObject::tr("pack"), Qt::CaseInsensitive);
             }
 
@@ -154,11 +158,11 @@ int main(int argc, char* argv[])
     setButton("buttonUp", QObject::tr("↑ Priority"), QObject::tr("Move the selected mod earlier in the merge order. Merge order is priority-sensitive."));
     setButton("buttonDown", QObject::tr("↓ Priority"), QObject::tr("Move the selected mod later in the merge order. Merge order is priority-sensitive."));
     setButton("buttonRecommended", QObject::tr("Suggest Mods"), QObject::tr("Selects likely merge candidates. This is not a one-click solution; review the selection and conflicts before creating a ModPack."));
-    setButton("buttonSelectAll", QObject::tr("Select All"), QObject::tr("Select every mod currently shown by the model."));
+    setButton("buttonSelectAll", QObject::tr("Select All"), QObject::tr("Select every available/unmerged mod in the current workspace model."));
     setButton("buttonDeselect", QObject::tr("Clear Selection"), QObject::tr("Clear all selected mods."));
     setButton("buttonConflicts", QObject::tr("Review Conflicts"), QObject::tr("Show resources that are present in more than one selected mod."));
     setButton("buttonMerge", QObject::tr("Create ModPack"), QObject::tr("Create a ModPack from the selected mods using the configured ModKit pipeline."));
-    setButton("buttonUnmerge", QObject::tr("Restore Sources"), QObject::tr("Restore source mods that were disabled by a previous merge."));
+    setButton("buttonUnmerge", QObject::tr("Restore Sources"), QObject::tr("Restore source mods that were disabled by a previous merge. NG packs are removed only when their embedded manifest proves ownership."));
 
     if (QTextEdit* detailedLog = w.findChild<QTextEdit*>("textEditLog")) {
         detailedLog->setMaximumHeight(150);
