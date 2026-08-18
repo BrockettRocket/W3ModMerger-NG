@@ -52,6 +52,7 @@ public:
     State   modState = NOT_MERGED;
 
     QString notes;
+    QString verifiedPackName;
     QStringList ngSources;
     QFileInfoList mergedResources;
     MetadataStore metadata;
