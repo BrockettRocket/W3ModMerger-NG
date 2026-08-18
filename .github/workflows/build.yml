@@ -1,0 +1,128 @@
+name: build
+
+on:
+  push:
+    branches:
+      - master
+      - 'ng/**'
+  pull_request:
+
+jobs:
+  linux-qt5:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Qt 5 build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qtbase5-dev qt5-qmake qttools5-dev-tools build-essential
+      - name: Build translation resource
+        run: lrelease translations/W3ModMerger_ru_RU.ts -qm translations/W3ModMerger_ru_RU.qm
+      - name: Configure
+        run: qmake W3ModMerger.pro
+      - name: Build
+        run: make -j2
+
+  windows-qt5:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt 5.15.2 and matching MinGW 8.1
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '5.15.2'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_mingw81'
+          tools: 'tools_mingw81,qt.tools.win64_mingw810'
+          cache: true
+
+      - name: Add MinGW to PATH
+        shell: pwsh
+        run: |
+          $mingw = Join-Path $env:RUNNER_WORKSPACE 'Qt\Tools\mingw810_64\bin'
+          if (!(Test-Path $mingw)) {
+            throw "Matching MinGW 8.1 toolchain not found at $mingw"
+          }
+          $mingw | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Build translation resource
+        shell: pwsh
+        run: lrelease translations/W3ModMerger_ru_RU.ts -qm translations/W3ModMerger_ru_RU.qm
+
+      - name: Configure release build
+        shell: pwsh
+        run: qmake W3ModMerger.pro 'CONFIG+=release ci'
+
+      - name: Build Windows executable
+        shell: pwsh
+        run: mingw32-make -j2
+
+      - name: Package standalone Windows build
+        shell: pwsh
+        run: |
+          $mingw = Join-Path $env:RUNNER_WORKSPACE 'Qt\Tools\mingw810_64\bin'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+
+          $exe = Get-ChildItem -Path . -Filter W3ModMerger.exe -Recurse |
+            Where-Object { $_.FullName -notmatch '\\dist\\' } |
+            Select-Object -First 1
+          if (!$exe) {
+            throw 'W3ModMerger.exe was not produced by the build.'
+          }
+          Copy-Item $exe.FullName 'dist\W3ModMerger-NG.exe'
+
+          # Qt 5.15 MinGW's windeployqt can fail to locate qwindows.dll even
+          # when the official platform plugin is installed. Package this small
+          # Widgets app explicitly so the artifact is deterministic.
+          $requiredQtDlls = @(
+            'Qt5Core.dll',
+            'Qt5Gui.dll',
+            'Qt5Widgets.dll'
+          )
+          foreach ($dll in $requiredQtDlls) {
+            $src = Join-Path $env:QT_ROOT_DIR "bin\$dll"
+            if (!(Test-Path $src)) { throw "Missing required Qt runtime: $src" }
+            Copy-Item $src dist
+          }
+
+          $optionalQtDlls = @(
+            'libEGL.dll',
+            'libGLESv2.dll',
+            'D3Dcompiler_47.dll',
+            'opengl32sw.dll'
+          )
+          foreach ($dll in $optionalQtDlls) {
+            $src = Join-Path $env:QT_ROOT_DIR "bin\$dll"
+            if (Test-Path $src) { Copy-Item $src dist }
+          }
+
+          $mingwRuntime = @(
+            'libgcc_s_seh-1.dll',
+            'libstdc++-6.dll',
+            'libwinpthread-1.dll'
+          )
+          foreach ($dll in $mingwRuntime) {
+            $src = Join-Path $mingw $dll
+            if (!(Test-Path $src)) { throw "Missing required MinGW runtime: $src" }
+            Copy-Item $src dist
+          }
+
+          foreach ($pluginDir in @('platforms', 'styles', 'imageformats')) {
+            $src = Join-Path $env:QT_ROOT_DIR "plugins\$pluginDir"
+            if (Test-Path $src) {
+              Copy-Item $src "dist\$pluginDir" -Recurse
+            }
+          }
+
+          Copy-Item 'W3ModMerger.manifest' 'dist\W3ModMerger-NG.exe.manifest'
+          Copy-Item README.md 'dist\README.md' -ErrorAction SilentlyContinue
+          Get-ChildItem -Path dist -Recurse
+
+      - name: Upload Windows x64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: W3ModMerger-NG-windows-x64
+          path: dist/
+          if-no-files-found: error

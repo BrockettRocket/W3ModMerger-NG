@@ -14,6 +14,7 @@
 #include "libs/lz4.h"
 
 #include <QThread>
+#include <cstring>
 
 Unpacker::Unpacker(QList<Mod*>& list, const Settings* s) : modsList(list), settings(s)
 {
@@ -27,6 +28,8 @@ void Unpacker::run()
     moveToThread(thread);
 
     connect(thread, &QThread::started, this, &Unpacker::startUnpacking);
+    connect(this, &Unpacker::finished, thread, &QThread::quit);
+    connect(this, &Unpacker::failed, thread, &QThread::quit);
     connect(thread, &QThread::finished, thread, &QThread::deleteLater);
 
     thread->start();
@@ -40,55 +43,99 @@ void Unpacker::startUnpacking()
 
             QFile source(bundle->fullPath);
 
-            if (! source.open(QIODevice::ReadOnly)) {
-                toLog( tr("File is not opened: %1", "Warns about failed file opening.").arg(bundle->fullPath) );
-                continue;
+            if (!source.open(QIODevice::ReadOnly)) {
+                QString reason = tr("Failed to open source bundle: %1").arg(bundle->fullPath);
+                emit toLog(reason);
+                emit failed(reason);
+                return;
             }
 
             for (FileRecord record : bundle->fileList) {
 
-                toLog( tr("   Extracting: %1", "File extraction message.").arg(record.filename) );
+                emit toLog( tr("   Extracting: %1", "File extraction message.").arg(record.filename) );
 
                 QString dirPath = record.filename.mid(0, record.filename.lastIndexOf('\\'));
 
                 QDir d;
-                d.mkpath(settings->pathCooked + Constants::SLASH + dirPath);
-                QFile result(settings->pathCooked + Constants::SLASH + record.filename);
-
-                if (! result.open(QIODevice::WriteOnly)) {
-                    toLog( tr("File is not saved: %1", "Warns about failed file saving.").arg(result.fileName() ));
-                    continue;
+                if (!d.mkpath(settings->pathCooked + Constants::SLASH + dirPath)) {
+                    QString reason = tr("Failed to create output directory for: %1").arg(record.filename);
+                    emit toLog(reason);
+                    emit failed(reason);
+                    return;
                 }
 
-                QDataStream writer(&result);
+                QFile result(settings->pathCooked + Constants::SLASH + record.filename);
 
-                source.seek( record.globalOffset );
+                if (!result.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                    QString reason = tr("Failed to save extracted file: %1").arg(result.fileName());
+                    emit toLog(reason);
+                    emit failed(reason);
+                    return;
+                }
 
-                QByteArray encoded = source.read( record.sizeCompressed );
+                if (!source.seek(record.globalOffset)) {
+                    QString reason = tr("Failed to seek source bundle while extracting: %1").arg(record.filename);
+                    emit toLog(reason);
+                    emit failed(reason);
+                    return;
+                }
+
+                QByteArray encoded = source.read(record.sizeCompressed);
+                if (encoded.size() != record.sizeCompressed) {
+                    QString reason = tr("Unexpected end of bundle while extracting: %1").arg(record.filename);
+                    emit toLog(reason);
+                    emit failed(reason);
+                    return;
+                }
+
                 QByteArray decoded;
-                decoded.reserve(record.sizeUncompressed);
+                decoded.resize(record.sizeUncompressed);
 
-                unpack(record.algorithm,
-                       record.sizeCompressed,
-                       record.sizeUncompressed,
-                       encoded.data(), decoded.data() );
+                if (!unpack(record.algorithm,
+                            record.sizeCompressed,
+                            record.sizeUncompressed,
+                            encoded.data(), decoded.data())) {
+                    QString reason = tr("Failed to decompress: %1 (algorithm %2)")
+                                         .arg(record.filename)
+                                         .arg(record.algorithm);
+                    emit toLog(reason);
+                    emit failed(reason);
+                    return;
+                }
 
-                writer.writeRawData(decoded.data(), record.sizeUncompressed);
+                if (result.write(decoded.constData(), decoded.size()) != decoded.size()) {
+                    QString reason = tr("Failed to write complete extracted file: %1").arg(result.fileName());
+                    emit toLog(reason);
+                    emit failed(reason);
+                    return;
+                }
+
                 result.close();
             }
             source.close();
         }
-        mod->renameMerge();
     }
+
+    // Source mods are intentionally left untouched here. They are only
+    // disabled after the final merged output has been validated.
     emit finished();
 }
 
-void Unpacker::unpack(int algo, int sizec, int sizeu, char* buf_compressed, char* buf_uncompressed)
+bool Unpacker::unpack(int algo, int sizec, int sizeu, char* buf_compressed, char* buf_uncompressed)
 {
+    if (algo == 0) {
+        if (sizec != sizeu) {
+            return false;
+        }
+        std::memcpy(buf_uncompressed, buf_compressed, sizeu);
+        return true;
+    }
+
     if (algo == 5) {
-        LZ4_decompress_safe(buf_compressed, buf_uncompressed, sizec, sizeu);
+        int result = LZ4_decompress_safe(buf_compressed, buf_uncompressed, sizec, sizeu);
+        return result == sizeu;
     }
-    else {
-        toLog("Unsupported compression algorithm: " + QString::number(algo));
-    }
+
+    emit toLog("Unsupported compression algorithm: " + QString::number(algo));
+    return false;
 }

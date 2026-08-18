@@ -37,6 +37,7 @@ signals:
     void startImagesDeleting();
     void startCooking();
     void mergingFinished();
+    void mergingFailed(QString reason);
     //No cooking & cache
     void skipCooking();
 
@@ -52,10 +53,28 @@ private:
     const Settings* settings;
     QProcess* wcc;
 
+    QString processBuffer;
+    bool processErrored = false;
+    bool outputStarted = false;
+
     QStringList parseCmdArgs(QString cmd);
     QStringList parseCmdArgs(QString cmd, QString path);
     void processOutput();
     void pause(QString message, QString folder, QString path, bool showNextTime);
+
+    void startWcc(const QStringList& args);
+    void uncookFinished(int exitCode, QProcess::ExitStatus exitStatus);
+    void cookFinished(int exitCode, QProcess::ExitStatus exitStatus);
+    void cacheFinished(int exitCode, QProcess::ExitStatus exitStatus);
+    void packFinished(int exitCode, QProcess::ExitStatus exitStatus);
+    void metadataFinished(int exitCode, QProcess::ExitStatus exitStatus);
+
+    bool processSucceeded(int exitCode, QProcess::ExitStatus exitStatus) const;
+    bool harmlessUncookFailure() const;
+    bool directoryHasFiles(const QString& path) const;
+    bool validateOutput(QString* reason) const;
+    bool commitSourceMods(QString* reason);
+    void abortMerge(const QString& reason);
 };
 
 #endif // MERGER_H

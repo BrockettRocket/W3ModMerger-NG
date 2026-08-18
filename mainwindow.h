@@ -57,6 +57,7 @@ private slots:
     void sendToStatusbar(const QString& str);
     void installMergedPack();
     void on_mergeFinished();
+    void on_mergeFailed(const QString& reason);
     void openInExplorer() const;
     void markAsHidden();
     void on_dragAndDrop(int src, int dest);

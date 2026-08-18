@@ -47,7 +47,10 @@ RESOURCES += \
 
 RC_ICONS = icons\wolfhead.ico
 
-win32 {
+# Preserve the original Windows 7.1 SDK manifest step for legacy local builds,
+# but do not require that obsolete SDK in CI. Modern Windows runners do not
+# ship C:\Program Files\Microsoft SDKs\Windows\v7.1\bin\x64\mt.exe.
+win32:!contains(CONFIG, ci) {
     WINSDK_DIR = c:/Program Files/Microsoft SDKs/Windows/v7.1
     WIN_PWD = $$replace(PWD, /, \\)
     OUT_PWD_WIN = $$replace(OUT_PWD, /, \\)

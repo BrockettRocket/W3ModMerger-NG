@@ -31,8 +31,8 @@ class Mod : public QObject
 public:
     Mod(QString path, QObject* parent = 0);
 
-    void renameMerge();
-    void renameUnmerge();
+    bool renameMerge();
+    bool renameUnmerge();
 
     QString folderPath;
     QString folderPathNative;
