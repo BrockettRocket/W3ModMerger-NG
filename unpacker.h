@@ -15,12 +15,13 @@ public:
 
 signals:
     void toLog(QString message);
+    void failed(QString reason);
     void finished();
 
 private:
     QList<Mod*> modsList;
     const Settings* settings;
-    void unpack(int algo, int sizec, int sizeu, char* buf_compressed, char* buf_uncompressed);
+    bool unpack(int algo, int sizec, int sizeu, char* buf_compressed, char* buf_uncompressed);
 };
 
 #endif // UNPACKER_H
