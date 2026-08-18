@@ -2,6 +2,11 @@
 
 #include <QDataStream>
 #include <QPair>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
 
 Mod::Mod(QString path, QObject* parent) : QObject(parent),  folderPath(path)
 {
@@ -12,6 +17,32 @@ Mod::Mod(QString path, QObject* parent) : QObject(parent),  folderPath(path)
     scriptsPath = contentPath + SCRIPTS_PFIX;
     cachePath = contentPath + CACHE_PFIX;
     modName = folderPath.mid( folderPath.lastIndexOf(SLASH) + 1 );
+
+    // NG-created packs are self-describing. The manifest lives at the pack
+    // root using a RED-ignored '~' filename so it travels with the ModPack
+    // without becoming game content.
+    QFile manifestFile(folderPath + NG_MANIFEST_PFIX);
+    if (manifestFile.open(QIODevice::ReadOnly)) {
+        QJsonParseError parseError;
+        const QJsonDocument manifest = QJsonDocument::fromJson(manifestFile.readAll(), &parseError);
+
+        if (parseError.error == QJsonParseError::NoError && manifest.isObject()) {
+            const QJsonObject object = manifest.object();
+            const QJsonArray sources = object.value("sources").toArray();
+
+            if (object.value("tool").toString() == "W3ModMerger-NG" &&
+                object.value("schema").toInt() >= 1 &&
+                !sources.isEmpty()) {
+                isNgPack = true;
+                for (const QJsonValue& source : sources) {
+                    const QString sourceName = source.toString().trimmed();
+                    if (!sourceName.isEmpty()) {
+                        ngSources.append(sourceName);
+                    }
+                }
+            }
+        }
+    }
 
     metadata.setFile(contentPath + METADATA_PFIX);
     metadata.parse();
@@ -49,12 +80,17 @@ Mod::Mod(QString path, QObject* parent) : QObject(parent),  folderPath(path)
     /* Compact, user-facing notes. Detailed reasons stay available through
        tooltips/conflict review instead of repeating paragraph warnings. */
 
-    if ( mergedResources.size() > 0 && detectedResources.size() > 0) {
+    if (isNgPack) {
+        modState = MERGED_PACK;
+        checked = false;
+        notes = tr("Verified NG Pack • %1 source mod(s)").arg(ngSources.size());
+    }
+    else if ( mergedResources.size() > 0 && detectedResources.size() > 0) {
         notes.append( tr("Mixed merged/unmerged resources — repair required.", "Incorrect mod structure warning.") );
         modState = CORRUPTED;
     }
 
-    if (isMergeable) {
+    if (isMergeable && !isNgPack) {
         for (QString line : metadata.filesList) {
             if (line.indexOf(ICON_CHECK) != -1) {
                 isMergeable = false;
